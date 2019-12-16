@@ -1,0 +1,175 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(tidyverse)
+library(lubridate)
+
+io_reddit <- read_csv("reddit_io.csv", na = c(""))
+```
+
+
+```{r}
+glimpse(io_reddit)
+
+io_reddit <- io_reddit %>%
+  mutate(account_created_at = parse_date_time(account_created_at, orders = "mdy_HMS %p", tz = "UTC"),
+         created_at = parse_date_time(created_at, orders = "%b %d %Y %H:%M:%S %p", tz = "UTC"))
+
+io_reddit <- io_reddit %>%
+  mutate(submission_type = case_when(
+    submission_type == "S" ~ "Submission",
+    submission_type == "C" ~ "Comment",
+    TRUE ~ "Other"
+  ))
+```
+
+
+## How many comments and subreddit submissions? 
+```{r}
+io_reddit %>%
+  count(submission_type, sort = TRUE)
+```
+
+
+## When were the accounts created?
+```{r}
+library(ggforce)
+
+io_reddit %>%
+  filter(!is.na(account)) %>%
+  distinct(account_created_at, .keep_all = TRUE) %>%
+ggplot(aes(account_created_at, account)) +
+geom_point(color = "dodgerblue2") +
+theme_ipsum_rc(grid = "X") +
+  labs(x = "time",
+       y = NULL,
+       title = "Creation dates of Reddit accounts suspected to be part of a Russian information operation",
+       subtitle = "Each dot represents the creation date of the account",
+       caption = "@raymserrato") +
+  scale_x_datetime(date_breaks = "6 months", date_labels = "%b %y") +
+  theme(axis.text.y = element_text(size = 10))
+
+
+
+io_reddit %>%
+  ggplot(aes(votes)) +
+  geom_histogram(fill = "dodgerblue2") +
+  scale_x_log10() +
+  theme_ipsum_rc(grid = "Y") +
+  labs(title = "Distribution of Reddit votes received by Russian IO submissions",
+       subtitle = "The vast majority of posts received little or no engagement",
+       caption = "@raymserrato",
+       x = "votes (log10)")
+
+```
+
+```{r}
+io_reddit %>%
+  mutate(created_at_moscow = with_tz(created_at, tz = "Europe/Moscow"),
+    hour = hour(created_at),
+    wday = wday(created_at, label = TRUE)) %>%
+  group_by(wday) %>%
+  summarise(n = n()) %>%
+  filter(!is.na(wday)) %>%
+  ggplot(aes(wday, n)) +
+  geom_col()
+```
+
+
+## Which subreddits were the accounts targeting?
+```{r}
+io_reddit %>%
+  count(subreddit, sort = TRUE) 
+```
+
+```{r}
+library(widyr) 
+
+subreddit_counts <- io_reddit %>%
+  filter(!is.na(subreddit)) %>%
+  count(subreddit, sort = TRUE)
+
+subreddit_cors <- io_reddit %>%
+  pairwise_cor(subreddit, account, sort = TRUE, upper = FALSE)
+
+
+library(ggraph)
+library(igraph)
+library(tidygraph)
+library(graphlayouts)
+
+set.seed(2019)
+
+# we set an arbitrary threshold of connectivity
+subreddit_cors %>%
+  filter(correlation >= .4) %>%
+  as_tbl_graph(vertices = subreddit_counts) %>%
+  mutate(community = as.factor(group_infomap()),
+         degree = centrality_degree(mode = "in")) %>%
+ggraph(layout = 'kk') +
+  geom_edge_link(aes(alpha = correlation), color = "black", show.legend = FALSE) +
+  geom_node_label(aes(label = name, color = community),
+                  size= 4,
+                  repel = TRUE, show.legend = FALSE) +
+  theme_graph(base_family = "Roboto Condensed") +
+  labs(title = "Network graph of subreddits targeted by Russian assets",
+       subtitle = "Submissions by 61 accounts between 2017-2019. Subreddits are connected if an account posted across them.",
+       caption = "@raymserrato") +
+  theme(plot.title = element_text(face = "bold", size = 18, hjust = 0.5),
+        plot.subtitle = element_text(size = 12, hjust= 0.5))
+
+
+```
+
+
+
+```{r}
+install.packages("cld3")
+library(cld3)
+languages_detect <- io_reddit$submission_title
+
+langs <-detect_language(languages_detect)
+langs %>%
+  count(langs, sort = TRUE)
+
+io_reddit %>%
+  filter(!is.na(account)) %>%
+  count(account, sort = TRUE) %>%
+  mutate(perc = n/sum(n)) 
+
+```
+
+
+```{r}
+  io_reddit %>%
+  distinct(submission_title, .keep_all = TRUE) %>%
+  sample_n(10) %>%
+mutate(row = row_number()) %>%
+ggplot(aes(x = 0, y = row)) +
+      geom_text(
+        aes(label = submission_title), 
+        size = 3.5, fontface = "italic", hjust = 0, family = "Roboto Condensed", color = "dodgerblue2") +
+   scale_x_continuous(limits = c(-0.05, 1), expand = c(0, 0)) +
+  theme_ipsum_rc(grid = "none", strip_text_face = "bold") +
+  theme(axis.title       = element_blank(),
+        axis.text        = element_blank(),
+        axis.ticks       = element_blank(),
+        panel.grid       = element_blank(),
+        strip.background = element_blank(),
+        panel.border     = element_blank(),
+        plot.background  = element_rect(fill = "#FAFAFA")) +
+  labs(title = "Sample of Reddit submissions by Russian disinformation accounts",
+              caption = "analysis by @raymserrato")
+
+ggsave(sample_titles, filename = "sample_titles.png", dpi = 300, type = "cairo")
+```
+

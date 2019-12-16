@@ -1,0 +1,80 @@
+---
+title: "Retrieving Reddit Data"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+require(tidyverse)
+require(RedditExtractoR)
+```
+
+## Introduction
+Reddit.com has become one of the most popular social media platforms in the United States, ranking in 6th place, only slightly behind YouTube and Facebook. The site relies on user-generated content, such as links, images, and text submitted by site users called "Redditors." Redditors primarily interact on the site by "upvoting" and "downvoting," promoting content into the "hot" and "rising" sections of each "subreddit," or sub-sections of the site which focus on specific topics like politics, world news, and memes (Reddit is home millions of subreddits).
+
+[Research](https://www.tandfonline.com/eprint/GIZQIWVFGDAARIYJWDJN/full?target=10.1080/10584609.2019.1661889) on disinformation campaigns has shown how Reddit was used by Russia's Internet Research Agency (IRA) to "trial balloon" content ahead of the 2016 US presidential elections, and more recently, Reddit diclosed that it had banned accounts on the site that were associated with a Russian influence campaign prior to the UK election. 
+
+In this training, we are going to use an R package, ```RedditExtractoR```, to retrieve data from Reddit. 
+
+# Install and load the package
+```{r}
+install.packages("RedditExtractoR")
+libary(RedditExctractoR)
+```
+
+# Explore some of the functions of RedditExtractoR 
+We can use the package to retrieve links to relevant subreddits for a search query, as well as comment threads. Let's start by looking at some of the functions:
+
+```{r}
+?reddit_urls
+```
+
+The function ```reddit_urls``` retrieves URLs of Reddit submissions that include the search query you've entered. As an example, we can search for submissions that mention, "Trump," and assign the results to a dataframe called ```trump_reddit_links```. 
+
+```{r}
+gnd_links <- reddit_urls(search_terms = "Green+New+Deal", cn_threshold = 10, page_threshold = 5, sort_by = "relevance")
+```
+
+The next function, ```reddit_content```, allows us to retrieve comment data for a specific thread. We'll retrieve the comment data for the first link in the ```gnd_links``` data. 
+```{r}
+?reddit_content
+```
+
+
+```{r}
+gnd_content <- reddit_content(gnd_links$URL[1])
+```
+
+#Exercises
+## Let's look at the comments of the first 20 or so links
+```{r}
+gnd_links <- gnd_links %>%
+  head(20) 
+```
+
+## Let's create a vector to store our data and loop through the URls of gnd_links to get comments for each URL
+```{r}
+gnd_content <- vector("list", length(gnd_links$URL))
+
+for (i in seq_along(gnd_content)) {
+  gnd_content[[i]] <- reddit_content(gnd_links$URL[i])
+}
+
+gnd_content <- bind_rows(gnd_content)
+```
+
+## Which users are posting the most in this dataset?
+```{r}
+gnd_content %>%
+  count(user, sort = TRUE)
+```
+
+## Can we determine if there are any cross posters? 
+```{r}
+gnd_content %>%
+  group_by(user) %>%
+  summarise(n = n(),
+            distinct_subreddits = n_distinct(subreddit, na.rm = FALSE)) %>%
+  arrange(desc(distinct_subreddits))
+```
